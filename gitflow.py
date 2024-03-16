@@ -137,6 +137,17 @@ def refresh_branch(branch, repo):
             branch_name(branch),
             colored(str(e), 'red')))
 
+def rebase_onto(repo, new_base, old_base, feature_branch):
+    """
+    Efficiently rebase feature branch onto new base branch.
+    """
+    ancestor_list = repo.merge_base(old_base, feature_branch)
+    if not ancestor_list:
+        raise Exception('No ancestor found between {} and {}'.format(
+            old_base, feature_branch))
+    ancestor = ancestor_list[0]
+    repo.git.rebase('--onto', new_base, ancestor, feature_branch)
+
 
 def print_tree(dag, current_branch_name, depth, repo, cascade=False, color=True):
     """
@@ -191,9 +202,8 @@ def print_tree(dag, current_branch_name, depth, repo, cascade=False, color=True)
             print('Rebasing {cur_branch} onto {parent_branch}...'.format(
                 cur_branch=bname,
                 parent_branch=branch_name(branch.tracking_branch())))
-            repo.git.checkout(branch)
             try:
-                repo.git.rebase(quiet=True)
+                rebase_onto(repo, new_base=branch_name(branch.tracking_branch()), old_base=branch_name(branch.tracking_branch()), feature_branch=bname)
             except git.GitCommandError as e:
                 print(colored('Failed cascade due to error:', 'red'))
                 print(colored(str(e), 'yellow'))
