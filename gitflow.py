@@ -6,11 +6,14 @@ TODOs:
     * If you have a root branch, instead of pointing them toward origin,
       tag them as remote and print divergence from origin.
 """
+# System imports
 import argparse
-import git
 import os
 import sys
 from collections import defaultdict
+
+# Third-party imports
+import git
 from six import string_types
 from termcolor import colored
 
@@ -34,23 +37,23 @@ def branch_name(branch):
     assert branch is not None, "Must have a valid branch to get the name!"
     if isinstance(branch, string_types):
         return branch
-    name = branch.name.lstrip('./')
+    name = branch.name.lstrip("./")
     return name
 
 
 def commit_delta_by_branch_name(cur_branch_name, parent_branch_name, repo):
     cmd = [
-        'git',
-        'rev-list',
-        '--count',
-        '--left-right',
-        '{}...{}'.format(cur_branch_name,
-                         parent_branch_name)
+        "git",
+        "rev-list",
+        "--count",
+        "--left-right",
+        "{}...{}".format(cur_branch_name, parent_branch_name),
     ]
     try:
         delta_str = repo.git.execute(cmd)
         parent_divergence, cur_branch_divergence = [
-                int(count.strip()) for count in delta_str.split()]
+            int(count.strip()) for count in delta_str.split()
+        ]
         return parent_divergence, cur_branch_divergence
     except Exception:
         return None, None
@@ -59,54 +62,49 @@ def commit_delta_by_branch_name(cur_branch_name, parent_branch_name, repo):
 def commit_delta_by_branch(cur_branch, repo):
     cur_branch_name = branch_name(cur_branch)
     parent_branch_name = branch_name(cur_branch.tracking_branch())
-    return commit_delta_by_branch_name(cur_branch_name,
-                                       parent_branch_name,
-                                       repo)
+    return commit_delta_by_branch_name(cur_branch_name, parent_branch_name, repo)
 
 
 def replace_colored(string, *args, **kwargs):
     return string
 
 
-def create_branch_str(bname, active_branch, depth, parent_bname='', repo=None, no_color=False):
+def create_branch_str(bname, active_branch, depth, parent_bname="", repo=None, no_color=False):
     color_fn = colored
     if no_color:
         color_fn = replace_colored
     # Create a string with whitespace representing depth.
-    tabstr = ''.join(['  '] * depth)
+    tabstr = "".join(["  "] * depth)
     if depth == 0:
-        branch_str = ' {branch}'.format(tabstr, branch=bname)
+        branch_str = " {branch}".format(tabstr, branch=bname)
     else:
-        branch_str = '{} |-> {branch}'.format(tabstr, branch=bname)
+        branch_str = "{} |-> {branch}".format(tabstr, branch=bname)
 
     # If given enough information, print the status relative to the parent.
     if parent_bname and repo:
-        (cur_ahead,
-         parent_ahead) = commit_delta_by_branch_name(bname,
-                                                     parent_bname,
-                                                     repo)
-        branch_str += '  '
+        (cur_ahead, parent_ahead) = commit_delta_by_branch_name(bname, parent_bname, repo)
+        branch_str += "  "
         if parent_ahead:
-            parent_ahead_str = color_fn('-{}'.format(str(parent_ahead)), 'red')
+            parent_ahead_str = color_fn("-{}".format(str(parent_ahead)), "red")
         elif parent_ahead == 0:
-            parent_ahead_str = '-{}'.format(str(parent_ahead))
+            parent_ahead_str = "-{}".format(str(parent_ahead))
         if cur_ahead:
-            cur_ahead_str = color_fn('+{}'.format(str(cur_ahead)), 'green')
+            cur_ahead_str = color_fn("+{}".format(str(cur_ahead)), "green")
         elif cur_ahead == 0:
-            cur_ahead_str = '-{}'.format(str(cur_ahead))
+            cur_ahead_str = "-{}".format(str(cur_ahead))
 
         if cur_ahead is None or parent_ahead is None:
             branch_str += "(Upstream Branch Not Found)"
-            branch_str = color_fn(branch_str, 'red')
+            branch_str = color_fn(branch_str, "red")
         else:
-            branch_str += '({}, {})'.format(parent_ahead_str, cur_ahead_str)
+            branch_str += "({}, {})".format(parent_ahead_str, cur_ahead_str)
 
     # Highlight the current branch in terminal if it is currently checked
     # out.
     active_bname = branch_name(active_branch)
     if active_bname is not None and bname == active_bname:
-        branch_str += ' *(active branch)'
-        branch_str = color_fn(branch_str, 'green')
+        branch_str += " *(active branch)"
+        branch_str = color_fn(branch_str, "green")
     return branch_str
 
 
@@ -117,25 +115,22 @@ def active_branch_from_repo(repo, verbose=False):
         return repo.active_branch
     except TypeError as e:
         if verbose:
-            print('Could not get active branch due to error: {}'.format(
-                str(e)))
+            print("Could not get active branch due to error: {}".format(str(e)))
         return None
 
 
 def refresh_branch(branch, repo):
     try:
         repo.remote().fetch(branch_name(branch))
-        cmd = [
-            'git',
-            'reset',
-            '--keep',
-            'origin/{}'.format(branch_name(branch))
-        ]
+        cmd = ["git", "reset", "--keep", "origin/{}".format(branch_name(branch))]
         repo.git.execute(cmd)
     except Exception as e:
-        print('Failed to refresh {} with error:\n{}'.format(
-            branch_name(branch),
-            colored(str(e), 'red')))
+        print(
+            "Failed to refresh {} with error:\n{}".format(
+                branch_name(branch), colored(str(e), "red")
+            )
+        )
+
 
 def rebase_onto(repo, new_base, old_base, feature_branch):
     """
@@ -143,10 +138,9 @@ def rebase_onto(repo, new_base, old_base, feature_branch):
     """
     ancestor_list = repo.merge_base(old_base, feature_branch)
     if not ancestor_list:
-        raise Exception('No ancestor found between {} and {}'.format(
-            old_base, feature_branch))
+        raise Exception("No ancestor found between {} and {}".format(old_base, feature_branch))
     ancestor = ancestor_list[0]
-    repo.git.rebase('--onto', new_base, ancestor, feature_branch)
+    repo.git.rebase("--onto", new_base, ancestor, feature_branch)
 
 
 def print_tree(dag, current_branch_name, depth, repo, cascade=False, color=True):
@@ -176,40 +170,48 @@ def print_tree(dag, current_branch_name, depth, repo, cascade=False, color=True)
         return True
     if depth == 0:
         print(create_branch_str(current_branch_name, active_branch, depth, no_color=not color))
-        return print_tree(
-            dag,
-            current_branch_name,
-            depth + 1,
-            repo,
-            cascade=cascade,
-            color=color)
+        return print_tree(dag, current_branch_name, depth + 1, repo, cascade=cascade, color=color)
     # Recurively print branches in the flow dag.
     for branch in dag[current_branch_name]:
         bname = branch_name(branch)
         # Print the final branch string to terminal.
         print(
-            create_branch_str(bname,
-                              active_branch,
-                              depth,
-                              branch_name(branch.tracking_branch()),
-                              repo,
-                              no_color=not color))
+            create_branch_str(
+                bname,
+                active_branch,
+                depth,
+                branch_name(branch.tracking_branch()),
+                repo,
+                no_color=not color,
+            )
+        )
 
         # Perform the cascaded rebase if specified.
-        if (cascade):
+        if cascade:
             if repo is None:
-                raise CascadeException('Must also supply a repo!')
-            print('Rebasing {cur_branch} onto {parent_branch}...'.format(
-                cur_branch=bname,
-                parent_branch=branch_name(branch.tracking_branch())))
+                raise CascadeException("Must also supply a repo!")
+            print(
+                "Rebasing {cur_branch} onto {parent_branch}...".format(
+                    cur_branch=bname, parent_branch=branch_name(branch.tracking_branch())
+                )
+            )
             try:
-                rebase_onto(repo, new_base=branch_name(branch.tracking_branch()), old_base=branch_name(branch.tracking_branch()), feature_branch=bname)
+                rebase_onto(
+                    repo,
+                    new_base=branch_name(branch.tracking_branch()),
+                    old_base=branch_name(branch.tracking_branch()),
+                    feature_branch=bname,
+                )
             except git.GitCommandError as e:
-                print(colored('Failed cascade due to error:', 'red'))
-                print(colored(str(e), 'yellow'))
-                print(colored('Aborting cascade for this branch. '
-                              'Please resolve conflicts on your own.',
-                              'red'))
+                print(colored("Failed cascade due to error:", "red"))
+                print(colored(str(e), "yellow"))
+                print(
+                    colored(
+                        "Aborting cascade for this branch. "
+                        "Please resolve conflicts on your own.",
+                        "red",
+                    )
+                )
                 print("Continuing to next subtree...")
                 repo.git.rebase(abort=True)
                 continue
@@ -235,7 +237,7 @@ def build_git_dag(r):
         tb = b.tracking_branch()
         if tb:
             tbname = branch_name(tb)
-            if tbname.startswith('origin'):
+            if tbname.startswith("origin"):
                 roots.append(tbname)
             dag[tbname].append(b)
         else:
@@ -246,13 +248,7 @@ def build_git_dag(r):
 def print_dag(dag, roots, repo, cascade, color=True):
     # Begin traversing the tree from the top level branches.
     for root_branch_name in roots:
-        if not print_tree(
-                dag,
-                root_branch_name,
-                depth=0,
-                repo=repo,
-                cascade=cascade,
-                color=color):
+        if not print_tree(dag, root_branch_name, depth=0, repo=repo, cascade=cascade, color=color):
             return
 
 
@@ -282,39 +278,42 @@ def find_git_dir():
     """
     # Use `--show-toplevel` instead of `--git-dir` here because it is a more
     # robust solution.
-    cmd = ['git', 'rev-parse', '--show-toplevel']
+    cmd = ["git", "rev-parse", "--show-toplevel"]
     g = git.Git()
     # We join with .git instead of doing `--git-dir` in our cmd because this
     # works with worktrees, while `--git-dir` did not work with worktrees in my
     # experience. Worst case, both work.
-    return os.path.join(g.execute(cmd), '.git')
+    return os.path.join(g.execute(cmd), ".git")
 
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        '--cascade',
+        "--cascade",
         default=False,
-        action='store_true',
-        help="When specified, will rebase all downstream branches from this "
-        "branch.")
+        action="store_true",
+        help="When specified, will rebase all downstream branches from this " "branch.",
+    )
     parser.add_argument(
-        '--branch',
+        "--branch",
         default=None,
         help="When specified, will print the git dag starting from this "
         "branch. Will also cascade from this branch only when specified."
-        "Defaults to currently checked out branch.")
+        "Defaults to currently checked out branch.",
+    )
     parser.add_argument(
-        '--refresh',
+        "--refresh",
         default=False,
-        action='store_true',
-        help="Updates the specified branch with latest origin.")
+        action="store_true",
+        help="Updates the specified branch with latest origin.",
+    )
     parser.add_argument(
-        '--no-color',
+        "--no-color",
         default=True,
-        dest='color',
-        action='store_false',
-        help="Updates the specified branch with latest origin.")
+        dest="color",
+        action="store_false",
+        help="Updates the specified branch with latest origin.",
+    )
     return parser.parse_args(argv)
 
 
@@ -352,9 +351,9 @@ def main(argv=sys.argv[1:]):
         # If cascaded, return to the original branch.
         repo.git.checkout(initial_active_branch)
 
-        print('Status after cascade:')
+        print("Status after cascade:")
         print_dag(dag, roots, repo, False, color=args.color)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
