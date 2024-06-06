@@ -1,8 +1,6 @@
 #!/usr/bin/python3.6
 """
 TODOs:
-    * Add divergence counts from tracked branch to gitflow prompt.
-    * Have cascade abort as soon as a conflict is found.
     * If you have a root branch, instead of pointing them toward origin,
       tag them as remote and print divergence from origin.
 """
@@ -88,10 +86,14 @@ def create_branch_str(bname, active_branch, depth, parent_bname="", repo=None, n
             parent_ahead_str = color_fn("-{}".format(str(parent_ahead)), "red")
         elif parent_ahead == 0:
             parent_ahead_str = "-{}".format(str(parent_ahead))
+        else:
+            parent_ahead_str = "?"
         if cur_ahead:
             cur_ahead_str = color_fn("+{}".format(str(cur_ahead)), "green")
         elif cur_ahead == 0:
             cur_ahead_str = "-{}".format(str(cur_ahead))
+        else:
+            cur_ahead_str = "?"
 
         if cur_ahead is None or parent_ahead is None:
             branch_str += "(Upstream Branch Not Found)"
@@ -132,18 +134,83 @@ def refresh_branch(branch, repo):
         )
 
 
-def rebase_onto(repo, new_base, old_base, feature_branch):
+def get_merge_base(repo: git.Repo, branch1: str, branch2: str) -> str:
+    """
+    Get the merge base commit for two branches.
+    """
+    ancestor_list = repo.merge_base(branch1, branch2)
+    if not ancestor_list:
+        raise Exception("No ancestor found between {} and {}".format(branch1, branch2))
+    return ancestor_list[0]
+
+
+def abort_reabse(repo: git.Repo) -> None:
+    """
+    Aborts a rebase in progress.
+    Applies exception handling so the process doesn't crash if no rebase is in progress.
+
+    :input repo: GitPython repo object handle for dealing with git metadata.
+    """
+    try:
+        repo.git.rebase(abort=True)
+    except git.GitCommandError as e:
+        print(colored("Skipping abort rebase since no rebase is in progress", "red"))
+        print(colored(str(e), "yellow"))
+
+
+def force_push_no_verify(repo: git.Repo, branch: str) -> None:
+    """
+    Force push to origin without verification.
+    Uses exception handling to abort the push without interrupting anything else.
+
+    :input repo: GitPython repo object handle for dealing with git metadata.
+    :input branch: String name of the branch to push.
+    """
+    try:
+        print(f"git push --force origin {branch} --no-verify")
+        repo.git.push("--force", "origin", branch, "--no-verify")
+    except git.GitCommandError as e:
+        print(colored("Failed to push branch due to error:", "red"))
+        print(colored(str(e), "yellow"))
+        print(
+            colored(
+                "Aborting cascade for this branch. "
+                "Please resolve conflicts on your own.",
+                "red",
+            )
+        )
+
+def rebase_onto(repo: git.Repo, new_base: str, feature_branch: str) -> str:
     """
     Efficiently rebase feature branch onto new base branch.
     """
-    ancestor_list = repo.merge_base(old_base, feature_branch)
-    if not ancestor_list:
-        raise Exception("No ancestor found between {} and {}".format(old_base, feature_branch))
-    ancestor = ancestor_list[0]
-    repo.git.rebase("--onto", new_base, ancestor, feature_branch)
+    rebase_cmd_str = f"git rebase -i --reapply-cherry-picks --fork-point {new_base} {feature_branch} --rebase-merges"
+    print(rebase_cmd_str)
+    repo.git.rebase(
+        "--reapply-cherry-picks", "--fork-point", new_base, feature_branch, "--rebase-merges"
+    )
+    return rebase_cmd_str
 
 
-def print_tree(dag, current_branch_name, depth, repo, cascade=False, color=True):
+def get_commit_for_branch(branch):
+    # print(f"Getting commit for branch: {branch}")
+    commit = branch.commit
+    # Deal with the case where merges are present.
+    while len(commit.parents) > 1:
+        commit = commit.parents[0]  # Follow the first parent
+    # print(f"Commit for branch {branch} is: {commit}")
+    return commit
+
+
+def print_tree(
+    dag,
+    current_branch_name,
+    depth,
+    repo: git.Repo,
+    cascade=False,
+    color=True,
+    push_updates=False,
+):
     """
     Prints the git flow dependency tree recursively.
     Ex:
@@ -170,7 +237,15 @@ def print_tree(dag, current_branch_name, depth, repo, cascade=False, color=True)
         return True
     if depth == 0:
         print(create_branch_str(current_branch_name, active_branch, depth, no_color=not color))
-        return print_tree(dag, current_branch_name, depth + 1, repo, cascade=cascade, color=color)
+        return print_tree(
+            dag,
+            current_branch_name,
+            depth + 1,
+            repo,
+            cascade=cascade,
+            color=color,
+            push_updates=push_updates,
+        )
     # Recurively print branches in the flow dag.
     for branch in dag[current_branch_name]:
         bname = branch_name(branch)
@@ -196,12 +271,14 @@ def print_tree(dag, current_branch_name, depth, repo, cascade=False, color=True)
                 )
             )
             try:
-                rebase_onto(
+                rebase_cmd_str = rebase_onto(
                     repo,
                     new_base=branch_name(branch.tracking_branch()),
-                    old_base=branch_name(branch.tracking_branch()),
                     feature_branch=bname,
                 )
+                print(f"Rebase command: {rebase_cmd_str}")
+                if push_updates:
+                    force_push_no_verify(repo, bname)
             except git.GitCommandError as e:
                 print(colored("Failed cascade due to error:", "red"))
                 print(colored(str(e), "yellow"))
@@ -213,9 +290,18 @@ def print_tree(dag, current_branch_name, depth, repo, cascade=False, color=True)
                     )
                 )
                 print("Continuing to next subtree...")
-                repo.git.rebase(abort=True)
+                abort_reabse(repo)
                 continue
-        if not print_tree(dag, bname, depth + 1, repo, cascade=cascade, color=color):
+        leaf_node_reached = print_tree(
+            dag,
+            bname,
+            depth + 1,
+            repo,
+            cascade=cascade,
+            color=color,
+            push_updates=push_updates,
+        )
+        if not leaf_node_reached:
             return False
     return True
 
@@ -245,10 +331,25 @@ def build_git_dag(r):
     return dag, roots
 
 
-def print_dag(dag, roots, repo, cascade, color=True):
+def print_dag(
+    dag: dict,
+    roots: list,
+    repo: git.Repo,
+    cascade: bool,
+    color: bool = True,
+    push_updates: bool = False,
+):
     # Begin traversing the tree from the top level branches.
     for root_branch_name in roots:
-        if not print_tree(dag, root_branch_name, depth=0, repo=repo, cascade=cascade, color=color):
+        if not print_tree(
+            dag,
+            root_branch_name,
+            depth=0,
+            repo=repo,
+            cascade=cascade,
+            color=color,
+            push_updates=push_updates,
+        ):
             return
 
 
@@ -314,6 +415,12 @@ def parse_args(argv):
         action="store_false",
         help="Updates the specified branch with latest origin.",
     )
+    parser.add_argument(
+        "--push",
+        default=False,
+        action="store_true",
+        help="Pushes changes to origin after rebasing. Will use --force-with-lease. Should typically be used with --cascade.",
+    )
     return parser.parse_args(argv)
 
 
@@ -345,14 +452,14 @@ def main(argv=sys.argv[1:]):
 
     if args.cascade:
         roots = [active_branch_name]
-    print_dag(dag, roots, repo, args.cascade, color=args.color)
+    print_dag(dag, roots, repo, args.cascade, color=args.color, push_updates=args.push)
     # If performing a cascade, print out status again.
     if args.cascade:
         # If cascaded, return to the original branch.
         repo.git.checkout(initial_active_branch)
 
         print("Status after cascade:")
-        print_dag(dag, roots, repo, False, color=args.color)
+        print_dag(dag, roots, repo, False, color=args.color, push_updates=False)
 
 
 if __name__ == "__main__":
