@@ -9,7 +9,7 @@ def find_packages():
 
 setup(
     name='arcgitflow',
-    version='0.5.4',
+    version='0.5.5',
     description='A Python implementation of the GitFlow process',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
