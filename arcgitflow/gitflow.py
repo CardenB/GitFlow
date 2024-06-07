@@ -248,6 +248,8 @@ def print_tree(
         )
     # Recurively print branches in the flow dag.
     for branch in dag[current_branch_name]:
+        # print(f"dag for current branch: {current_branch_name}")
+        # print(dag[current_branch_name])
         bname = branch_name(branch)
         # Print the final branch string to terminal.
         print(
