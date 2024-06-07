@@ -184,10 +184,10 @@ def rebase_onto(repo: git.Repo, new_base: str, feature_branch: str) -> str:
     """
     Efficiently rebase feature branch onto new base branch.
     """
-    rebase_cmd_str = f"git rebase -i --reapply-cherry-picks --fork-point {new_base} {feature_branch} --rebase-merges"
+    rebase_cmd_str = f"git rebase -i --reapply-cherry-picks --fork-point {new_base} {feature_branch}"
     print(rebase_cmd_str)
     repo.git.rebase(
-        "--reapply-cherry-picks", "--fork-point", new_base, feature_branch, "--rebase-merges"
+            "--reapply-cherry-picks", "--fork-point", new_base, feature_branch # , "--rebase-merges"  # TODO(carden): Investigate pros/cons of rebase-merges.
     )
     return rebase_cmd_str
 
